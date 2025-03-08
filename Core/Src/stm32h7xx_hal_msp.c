@@ -21,7 +21,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 /* USER CODE BEGIN Includes */
-
+#include "stm32h7xx_hal_conf.h"
+#include "stm32h7xx_it.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -278,9 +279,8 @@ void HAL_FDCAN_MspDeInit(FDCAN_HandleTypeDef* hfdcan)
 #define MAX_3BIT 0b111
 #define MAX_4BIT 0b1111
 #define MAX_FDCAN_RETRIES 3
-HAL_StatusTypeDef fdcanWrite(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTypeDef txHeader, uint8_t* txData, uint8_t len,
-		Module module, Direction direction, uint8_t priority, Command command)
-{
+HAL_StatusTypeDef fdcanWrite(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTypeDef txHeader, int8_t* txData, uint8_t len,
+		Module module, Direction direction, uint8_t priority, Command command) {
 	// Verify that the actual payload (txData) is not greater than 8 bytes (max for classic CAN)
 	if(len > FDCAN_DLC_BYTES_8)
 		return HAL_ERROR;
@@ -293,8 +293,7 @@ HAL_StatusTypeDef fdcanWrite(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTypeDef 
 	txHeader.DataLength = len;
 
 	// Create 11b id
-	txHeader.Identifier = ((uint16_t)priority << 8) | (uint8_t)(module << 5) | (uint8_t)(direction << 4) | (uint8_t)command;
-
+	txHeader.Identifier = 0x1839F380;
 	// Transmit message by putting it into 10 element TxFIFO queue
   int retry = 0;
   while (retry < MAX_FDCAN_RETRIES)
@@ -335,7 +334,7 @@ HAL_StatusTypeDef fdcanFilterInit(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTyp
 
 	// 11b register with 11b id. We only care about bits [7..5]
 	// FDCAN1 Mask Filter
-	fdcan_filter_config.IdType = FDCAN_STANDARD_ID;						// Using standard IDs, not extended IDs
+	fdcan_filter_config.IdType = FDCAN_EXTENDED_ID;						// Using standard IDs, not extended IDs
 	fdcan_filter_config.FilterIndex = 0;								// We are only using 1 filter so index = 0
 	fdcan_filter_config.FilterType = FDCAN_FILTER_MASK;					// Using mask filter
 	fdcan_filter_config.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;			// Messages that pass through the filter should be sent to RX FIFO 0
@@ -355,4 +354,6 @@ HAL_StatusTypeDef fdcanFilterInit(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTyp
 	txHeader->TxEventFifoControl = FDCAN_NO_TX_EVENTS;					// Not using TxEvent
 	txHeader->MessageMarker = 0;										// Not using MessageMarker
 	return HAL_OK;
+}
 /* USER CODE END 1 */
+

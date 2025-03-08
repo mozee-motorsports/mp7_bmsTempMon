@@ -1,0 +1,13 @@
+../Core/Src/main.c:74:6:SetMuxChannel	16	static
+../Core/Src/main.c:81:6:Read_ADC	8	static
+../Core/Src/main.c:90:7:Get_Resistance	16	static
+../Core/Src/main.c:94:7:Get_Temperature	24	static
+../Core/Src/main.c:99:6:Calculate_Average_Temperature	16	static
+../Core/Src/main.c:122:6:sendCan	64	static
+../Core/Src/main.c:162:5:main	8	static
+../Core/Src/main.c:214:6:SystemClock_Config	120	static
+../Core/Src/main.c:274:13:MX_ADC1_Init	48	static
+../Core/Src/main.c:343:13:MX_FDCAN1_Init	8	static
+../Core/Src/main.c:396:13:MX_GPIO_Init	48	static
+../Core/Src/main.c:430:6:MPU_Config	24	static
+../Core/Src/main.c:461:6:Error_Handler	4	static,ignoring_inline_asm

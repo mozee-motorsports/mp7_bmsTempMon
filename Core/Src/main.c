@@ -73,9 +73,9 @@ static void MX_FDCAN1_Init(void);
 /* USER CODE BEGIN 0 */
 void SetMuxChannel(uint8_t channel) {
     // Assuming each control pin is connected to one of the 3 GPIO pins
-    HAL_GPIO_WritePin(MUX_GPIO_PORT, MUX_A_PIN, (channel & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(MUX_GPIO_PORT, MUX_B_PIN, (channel & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(MUX_GPIO_PORT, MUX_C_PIN, (channel & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(muxA_GPIO_Port, muxA_Pin, (channel & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(muxB_GPIO_Port, muxB_Pin, (channel & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(muxC_GPIO_Port, muxC_Pin, (channel & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 void Read_ADC(void) {
@@ -84,15 +84,15 @@ void Read_ADC(void) {
     adc_value = HAL_ADC_GetValue(&hadc1);
     HAL_ADC_Stop(&hadc1);
 
-    voltage = (adc_value * V_IN) / 4095.0;  // Convert ADC value to voltage
+    voltage = (adc_value * V_REF) / 4095.0;  // Convert ADC value to voltage
 }
 
 float Get_Resistance(float voltage) {
-    return R_FEEDBACK * (voltage / (V_IN - voltage));
+    return FEEDBACK * (voltage / (V_REF - voltage));
 }
 
 float Get_Temperature(float resistance) {
-    float temp_kelvin = 1.0 / ((1.0 / T0) + (1.0 / BETA) * log(resistance / R0));
+    float temp_kelvin = 1.0 / ((1.0 / T0) + (1.0 / THERM_B) * log(resistance / R0));
     return temp_kelvin - 273.15;  // Convert to Celsius
 }
 
@@ -120,29 +120,38 @@ void Calculate_Average_Temperature(void) {
 }
 
 void sendCan(void){
-	FDCAN_TxHeaderTypeDef TxHeader;
-	uint8_t TxData[8];
+    FDCAN_TxHeaderTypeDef tx_header;
+    uint8_t txData[8];
 
-	TxData[0] = 0x01;
-	TxData[1] = (int8_t) roundf(min_temperature);
-	TxData[2] = (int8_t) roundf(max_temperature);
-	TxData[3] = (int8_t) roundf(average_temperature);
-	TxData[4] = 0x28;
-	TxData[5] = 0x54;
-	TxData[6] = 0x01;
-	TxData[7] = TxData[0] + TxData[1] + TxData[2] + TxData[3] + TxData[4] + TxData[5] + TxData[6] + 0x39 + 0x08;
+    // Ensure temperatures stay within valid int8_t range
+    int8_t min_temp = (int8_t)roundf(fmaxf(fminf(min_temperature, 127), -128));
+    int8_t max_temp = (int8_t)roundf(fmaxf(fminf(max_temperature, 127), -128));
+    int8_t avg_temp = (int8_t)roundf(fmaxf(fminf(average_temperature, 127), -128));
 
-	TxHeader.Identifier = 0x1839F380;
-	TxHeader.IdType = FDCAN_STANDARD_ID;
-	TxHeader.TxFrameType = FDCAN_DATA_FRAME;
-	TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-	TxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-	TxHeader.BitRateSwitch = FDCAN_BRS_OFF;
-	TxHeader.FDFormat = FDCAN_CLASSIC_CAN;
-	TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-	TxHeader.MessageMarker = 0;
+    txData[0] = 0x01;
+    txData[1] = min_temp;
+    txData[2] = max_temp;
+    txData[3] = avg_temp;
+    txData[4] = 0x28;
+    txData[5] = 0x54;
+    txData[6] = 0x01;
+    txData[7] = (txData[0] + txData[1] + txData[2] + txData[3] + txData[4] + txData[5] + txData[6] + 0x39) / 8;
 
-	HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader, TxData);
+    // Use a valid CAN ID
+    tx_header.Identifier = 0x1839F380; // Example: standard 11-bit ID
+    tx_header.IdType = FDCAN_EXTENDED_ID;
+    tx_header.TxFrameType = FDCAN_DATA_FRAME;
+    tx_header.DataLength = FDCAN_DLC_BYTES_8;
+    tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+    tx_header.BitRateSwitch = FDCAN_BRS_OFF;
+    tx_header.FDFormat = FDCAN_CLASSIC_CAN;
+    tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+    tx_header.MessageMarker = 0;
+
+    // Send CAN message
+    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &tx_header, txData) != HAL_OK) {
+        Error_Handler(); // Handle transmission failure
+    }
 }
 /* USER CODE END 0 */
 
@@ -191,8 +200,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  calculate_average_temperature();
-
+	  Calculate_Average_Temperature();
+	  sendCan();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
