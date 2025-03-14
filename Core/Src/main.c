@@ -22,6 +22,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
+#include <stdbool.h>
+#include "stm32h7xx_hal.h"
+#include "stm32h7xx_hal_tim.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,11 +48,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-
 FDCAN_HandleTypeDef hfdcan1;
+TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
 uint32_t adc_value = 0;   // ADC value
+
 float voltage = 0.0;      // Voltage corresponding to the ADC value
 float resistance = 0.0;   // Resistance based on voltage
 float temperature = 0.0;  // Temperature in Celsius
@@ -57,6 +61,42 @@ float total_temperature = 0.0;
 float average_temperature = 0.0;
 float min_temperature = 0.0;
 float max_temperature = 0.0;
+
+temp_Lookup_Table vt_Lookup[33] = {
+		{2.44, -40},
+		{2.42, -35},
+		{2.40, -30},
+		{2.38, -25},
+		{2.35, -20},
+		{2.32, -15},
+		{2.27, -10},
+		{2.23, -5},
+		{2.17, 0},
+		{2.11, 5},
+		{2.05, 10},
+		{1.99, 15},
+		{1.92, 20},
+		{1.86, 25},
+		{1.80, 30},
+		{1.74, 35},
+		{1.68, 40},
+		{1.63, 45},
+		{1.59, 50},
+		{1.55, 55},
+		{1.51, 60},
+		{1.48, 65},
+		{1.45, 70},
+		{1.43, 75},
+		{1.40, 80},
+		{1.38, 85},
+		{1.37, 90},
+		{1.35, 95},
+		{1.34, 100},
+		{1.33, 105},
+		{1.32, 110},
+		{1.31, 115},
+		{1.30, 120}
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -65,8 +105,9 @@ static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_FDCAN1_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
-
+void sendCan(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -78,14 +119,68 @@ void SetMuxChannel(uint8_t channel) {
     HAL_GPIO_WritePin(muxC_GPIO_Port, muxC_Pin, (channel & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
+void setADCChannel(uint8_t channel) {
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.Rank = ADC_REGULAR_RANK_1;
+	sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+
+	switch (channel) {
+		case 0:
+			sConfig.Channel = ADC_CHANNEL_3;
+			break;
+		case 1:
+			sConfig.Channel = ADC_CHANNEL_4;
+			break;
+		case 2:
+			sConfig.Channel = ADC_CHANNEL_9;
+			break;
+		case 3:
+			sConfig.Channel = ADC_CHANNEL_10;
+			break;
+		case 4:
+			sConfig.Channel = ADC_CHANNEL_11;
+			break;
+		case 5:
+			sConfig.Channel = ADC_CHANNEL_14;
+			break;
+		case 6:
+			sConfig.Channel = ADC_CHANNEL_15;
+			break;
+		case 7:
+			sConfig.Channel = ADC_CHANNEL_16;
+			break;
+		default:
+			Error_Handler();
+			break;
+	}
+
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+		Error_Handler();  // Handle ADC configuration failure
+	}
+}
+
 void Read_ADC(void) {
     HAL_ADC_Start(&hadc1);
     HAL_ADC_PollForConversion(&hadc1, 10);
     adc_value = HAL_ADC_GetValue(&hadc1);
     HAL_ADC_Stop(&hadc1);
 
-    voltage = (adc_value * V_REF) / 4095.0;  // Convert ADC value to voltage
+    voltage = (adc_value * V_REF) / 65536.0;  // Convert ADC value to voltage
 }
+
+int8_t getClosestTemp(float voltage) {
+    int8_t closestTemp = vt_Lookup[0].temperature;
+
+    for (size_t i = 1; i < 33; i++) {
+        if (vt_Lookup[i].voltage < voltage) {
+            closestTemp = vt_Lookup[i].temperature;
+            i = 33;  // Exit loop
+        }
+    }
+    return closestTemp;
+}
+
+/*
 
 float Get_Resistance(float voltage) {
     return FEEDBACK * (voltage / (V_REF - voltage));
@@ -94,34 +189,34 @@ float Get_Resistance(float voltage) {
 float Get_Temperature(float resistance) {
     float temp_kelvin = 1.0 / ((1.0 / T0) + (1.0 / THERM_B) * log(resistance / R0));
     return temp_kelvin - 273.15;  // Convert to Celsius
-}
+}*/
 
 void Calculate_Average_Temperature(void) {
     total_temperature = 0.0;
 
-    for (uint8_t channel = 0; channel < 8; channel++) {
-        SetMuxChannel(channel);  // Select mux channel (mux1 - mux8)
-        HAL_Delay(10);  // Wait for mux to settle
+    for (uint8_t muxChannel = 0; muxChannel < 8; muxChannel++) {
+        SetMuxChannel(muxChannel);  // Select mux channel (mux1 - mux8)
 
-        Read_ADC();  // Read ADC value from the selected channel
-        resistance = Get_Resistance(voltage);  // Calculate thermistor resistance
-        temperature = Get_Temperature(resistance);  // Calculate temperature
-        if(temperature < min_temperature){
-        	min_temperature = temperature;
-        }
-        if(temperature > max_temperature){
-        	max_temperature = temperature;
-        }
-        total_temperature += temperature;  // Add to the running total
+        for(uint8_t adcChannel = 0; adcChannel < 8; adcChannel++) {
+			setADCChannel(adcChannel);
+			Read_ADC();
+			temperature = getClosestTemp(voltage);
+			if(temperature < min_temperature){
+				min_temperature = temperature;
+			}
+			if(temperature > max_temperature){
+				max_temperature = temperature;
+			}
+			total_temperature += temperature;
+		}
     }
-
     // Calculate the average temperature
     average_temperature = total_temperature / 8.0;
 }
 
 void sendCan(void){
-    FDCAN_TxHeaderTypeDef tx_header;
-    uint8_t txData[8];
+    uint8_t txData[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+	/*uint8_t txData[8];
 
     // Ensure temperatures stay within valid int8_t range
     int8_t min_temp = (int8_t)roundf(fmaxf(fminf(min_temperature, 127), -128));
@@ -135,24 +230,25 @@ void sendCan(void){
     txData[4] = 0x28;
     txData[5] = 0x54;
     txData[6] = 0x01;
-    txData[7] = (txData[0] + txData[1] + txData[2] + txData[3] + txData[4] + txData[5] + txData[6] + 0x39) / 8;
-
-    // Use a valid CAN ID
-    tx_header.Identifier = 0x1839F380; // Example: standard 11-bit ID
-    tx_header.IdType = FDCAN_EXTENDED_ID;
-    tx_header.TxFrameType = FDCAN_DATA_FRAME;
-    tx_header.DataLength = FDCAN_DLC_BYTES_8;
-    tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-    tx_header.BitRateSwitch = FDCAN_BRS_OFF;
-    tx_header.FDFormat = FDCAN_CLASSIC_CAN;
-    tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-    tx_header.MessageMarker = 0;
+    txData[7] = txData[0] + txData[1] + txData[2] + txData[3] + txData[4] + txData[5] + txData[6] + 0x39 + 0x08;
+*/
 
     // Send CAN message
-    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &tx_header, txData) != HAL_OK) {
+    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &tx_Header, txData) != HAL_OK) {
         Error_Handler(); // Handle transmission failure
     }
 }
+
+/*void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs) {
+    if ((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0) {
+        FDCAN_RxHeaderTypeDef RxHeader;
+        uint8_t RxData[8];
+
+        if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK) {
+
+        }
+    }
+}*/
 /* USER CODE END 0 */
 
 /**
@@ -175,8 +271,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  HAL_FDCAN_Start(&hfdcan1);
-  HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -190,8 +284,19 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_FDCAN1_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+  CAN_init();
+  //HAL_TIM_Base_Start_IT(&htim1);
 
+
+/*  volatile bool ms200_flag = false;
+
+  void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+  {
+	  ms200_flag = true;
+
+  }*/
 
   /* USER CODE END 2 */
 
@@ -199,9 +304,14 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+//	  for(int i = 0; i < 20000; i++){ }
+	  //if(ms200_flag)
+		  sendCan();
+		  HAL_Delay(200);
+
+
     /* USER CODE END WHILE */
-	  Calculate_Average_Temperature();
-	  sendCan();
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -222,7 +332,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
@@ -235,12 +345,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 60;
+  RCC_OscInitStruct.PLL.PLLN = 10;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 8;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
-  RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
+  RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOMEDIUM;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -254,13 +364,13 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV2;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
-  RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV1;
+  RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -288,7 +398,7 @@ static void MX_ADC1_Init(void)
   /** Common config
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_16B;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -369,15 +479,15 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Init.ExtFiltersNbr = 0;
   hfdcan1.Init.RxFifo0ElmtsNbr = 0;
   hfdcan1.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
-  hfdcan1.Init.RxFifo1ElmtsNbr = 0;
+  hfdcan1.Init.RxFifo1ElmtsNbr = 1;
   hfdcan1.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.RxBuffersNbr = 0;
   hfdcan1.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.TxEventsNbr = 0;
   hfdcan1.Init.TxBuffersNbr = 0;
-  hfdcan1.Init.TxFifoQueueElmtsNbr = 0;
+  hfdcan1.Init.TxFifoQueueElmtsNbr = 1;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
-  hfdcan1.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
+  hfdcan1.Init.TxElmtSize = FDCAN_DATA_BYTES_12;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
   {
     Error_Handler();
@@ -385,6 +495,53 @@ static void MX_FDCAN1_Init(void)
   /* USER CODE BEGIN FDCAN1_Init 2 */
 
   /* USER CODE END FDCAN1_Init 2 */
+
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 8000-1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 2000-1;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
 
 }
 
