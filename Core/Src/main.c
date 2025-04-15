@@ -33,7 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define V_REF 3
+#define V_REF 3.3
 #define FEEDBACK 120.0
 #define THERM_B 3380.0
 #define R0 10000.0
@@ -122,6 +122,10 @@ void setADCChannel(uint8_t channel) {
 	ADC_ChannelConfTypeDef sConfig = {0};
 	sConfig.Rank = ADC_REGULAR_RANK_1;
 	sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+	sConfig.SingleDiff = ADC_SINGLE_ENDED;
+	sConfig.OffsetNumber = ADC_OFFSET_NONE;
+	sConfig.Offset = 0;
+	sConfig.OffsetSignedSaturation = DISABLE;
 
 	switch (channel) {
 		case 0:
@@ -168,7 +172,7 @@ void Read_ADC(void) {
 }
 
 int8_t getClosestTemp(float voltage) {
-    int8_t closestTemp = vt_Lookup[0].temperature;
+    int16_t closestTemp = vt_Lookup[0].temperature;
 
     for (size_t i = 1; i < 33; i++) {
         if (vt_Lookup[i].voltage < voltage) {
@@ -176,7 +180,9 @@ int8_t getClosestTemp(float voltage) {
             i = 33;  // Exit loop
         }
     }
-    return closestTemp;
+    closestTemp = (closestTemp - 32) * 5 / 9;
+    int8_t retTemp =  closestTemp & 0x00FF;
+    return retTemp;
 }
 
 /*
@@ -194,16 +200,42 @@ void Calculate_Average_Temperature(void) {
     total_temperature = 0.0;
     temp_counter = 0;
 
-    for (uint8_t muxChannel = 0; muxChannel < 8; muxChannel++) {
-        SetMuxChannel(muxChannel);  // Select mux channel (mux1 - mux8)
+    for(uint8_t adcChannel = 0; adcChannel < 8; adcChannel++) {
+    	setADCChannel(adcChannel);
 
-        for(uint8_t adcChannel = 0; adcChannel < 8; adcChannel++) {
-			setADCChannel(adcChannel);
+    	for (uint8_t muxChannel = 0; muxChannel < 8; muxChannel++) {
+    		SetMuxChannel(muxChannel);  // Select mux channel (mux1 - mux8)
+
 			Read_ADC();
 			temperature = getClosestTemp(voltage);
-			if(temperature < 20 || temperature > 25){
+
+        	if(adcChannel == 0 && (muxChannel == 1 || muxChannel == 6 || muxChannel == 7)){
+        		continue; // Skip y1, y6, and y7 mux 0
+        	}
+        	if(adcChannel == 1){
+        		continue; // skip mux 1
+        	}
+        	if(adcChannel == 2){
+        		continue; // Skip mux 2
+        	}
+        	if(adcChannel == 3 && (muxChannel == 4)){
+				continue; // skip y4 mux 3
+			}
+        	if(adcChannel == 4 && (muxChannel == 0)){
+        		continue; // Skip y1 mux 4
+        	}
+        	if(adcChannel == 5 && (muxChannel == 7)){
+				continue; // Skip y7 on mux 5
+			}
+        	if(adcChannel == 7 && (muxChannel > 3)){
+        		continue; // skip last 4
+        	}
+
+			if(temperature < 0 ){
 				continue;
 			}
+
+
 			if(temperature < min_temperature){
 				min_temperature = temperature;
 			}
@@ -234,7 +266,7 @@ void sendCan(void){
     int8_t max_temp = (int8_t)roundf(fmaxf(fminf(max_temperature, 127), -128));
     int8_t avg_temp = (int8_t)roundf(fmaxf(fminf(average_temperature, 127), -128));
 
-    txData[0] = 0x01;
+    txData[0] = 0x00;
     txData[1] = min_temp;
     txData[2] = max_temp;
     txData[3] = avg_temp;
@@ -318,7 +350,7 @@ int main(void)
 	  //if(ms200_flag)
 	  Calculate_Average_Temperature();
 	  sendCan();
-	  HAL_Delay(200);
+	  HAL_Delay(100);
 
 
     /* USER CODE END WHILE */
