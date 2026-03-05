@@ -61,7 +61,7 @@ main-build: bmsTempMon.elf secondary-outputs
 
 # Tool invocations
 bmsTempMon.elf bmsTempMon.map: $(OBJS) $(USER_OBJS) C:\Github\MozeeMotorsports\mp7_bmsTempMon\STM32H743VITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "bmsTempMon.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Github\MozeeMotorsports\mp7_bmsTempMon\STM32H743VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="bmsTempMon.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "bmsTempMon.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Github\MozeeMotorsports\mp7_bmsTempMon\STM32H743VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="bmsTempMon.map" -Wl,--gc-sections -static  -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

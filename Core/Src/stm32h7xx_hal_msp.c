@@ -42,7 +42,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-FDCAN_TxHeaderTypeDef tx_Header;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,7 +102,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     PeriphClkInitStruct.PLL2.PLL2R = 2;
     PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_3;
     PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOMEDIUM;
-    PeriphClkInitStruct.PLL2.PLL2FRACN = 0.0;
+    PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
     PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_PLL2;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
     {
@@ -276,64 +275,6 @@ void HAL_FDCAN_MspDeInit(FDCAN_HandleTypeDef* hfdcan)
 }
 
 /* USER CODE BEGIN 1 */
-HAL_StatusTypeDef CAN_init()
-{
-	hfdcan1.Instance = FDCAN1; // Use FDCAN1 or FDCAN2
-	hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
-	hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
-	hfdcan1.Init.AutoRetransmission = ENABLE;
-	hfdcan1.Init.TransmitPause = DISABLE;
-	hfdcan1.Init.ProtocolException = DISABLE;
 
-	hfdcan1.Init.NominalPrescaler = 8;
-	hfdcan1.Init.NominalSyncJumpWidth = 1;
-	hfdcan1.Init.NominalTimeSeg1 = 12;
-	hfdcan1.Init.NominalTimeSeg2 = 2;
-
-	hfdcan1.Init.DataPrescaler = 1;
-	hfdcan1.Init.DataSyncJumpWidth = 1;
-	hfdcan1.Init.DataTimeSeg1 = 1;
-	hfdcan1.Init.DataTimeSeg2 = 1;
-
-	if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
-		return HAL_ERROR;
-
-	FDCAN_FilterTypeDef sFilterConfig;
-	sFilterConfig.IdType = FDCAN_EXTENDED_ID;
-	sFilterConfig.FilterIndex = 0;
-	sFilterConfig.FilterType = FDCAN_FILTER_MASK;
-	sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-	sFilterConfig.FilterID1 = 0x0000;
-	sFilterConfig.FilterID2 = 0x0000;
-
-	if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
-	    return HAL_ERROR;
-
-	if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
-	    return HAL_ERROR;
-
-	uint32_t CAN_ID = 0x1839F380;
-
-	tx_Header.Identifier = 0x1839F380;
-	tx_Header.IdType = FDCAN_EXTENDED_ID;
-	tx_Header.TxFrameType = FDCAN_DATA_FRAME;
-	tx_Header.DataLength = FDCAN_DLC_BYTES_8;
-	tx_Header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-	tx_Header.BitRateSwitch = FDCAN_BRS_OFF;
-	tx_Header.FDFormat = FDCAN_CLASSIC_CAN;
-	tx_Header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-	tx_Header.MessageMarker = 0;
-
-	return HAL_OK;
-
-
-//	debug_msg.StdId = 0x00;
-//	debug_msg.ExtId = 0x7;
-//	debug_msg.IDE = CAN_ID_EXT;
-//	debug_msg.RTR = CAN_RTR_DATA;
-//	debug_msg.DLC = 1;
-//	debug_msg.TransmitGlobalTime = DISABLE;
-
-}
 
 /* USER CODE END 1 */

@@ -1,6 +1,5 @@
-../Core/Src/stm32h7xx_hal_msp.c:64:6:HAL_MspInit	16	static
-../Core/Src/stm32h7xx_hal_msp.c:86:6:HAL_ADC_MspInit	248	static
-../Core/Src/stm32h7xx_hal_msp.c:161:6:HAL_ADC_MspDeInit	16	static
-../Core/Src/stm32h7xx_hal_msp.c:202:6:HAL_FDCAN_MspInit	240	static
-../Core/Src/stm32h7xx_hal_msp.c:253:6:HAL_FDCAN_MspDeInit	16	static
-../Core/Src/stm32h7xx_hal_msp.c:279:19:CAN_init	48	static
+../Core/Src/stm32h7xx_hal_msp.c:63:6:HAL_MspInit	16	static
+../Core/Src/stm32h7xx_hal_msp.c:85:6:HAL_ADC_MspInit	248	static
+../Core/Src/stm32h7xx_hal_msp.c:160:6:HAL_ADC_MspDeInit	16	static
+../Core/Src/stm32h7xx_hal_msp.c:201:6:HAL_FDCAN_MspInit	240	static
+../Core/Src/stm32h7xx_hal_msp.c:252:6:HAL_FDCAN_MspDeInit	16	static

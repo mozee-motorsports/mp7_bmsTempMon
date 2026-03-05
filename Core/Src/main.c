@@ -33,11 +33,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define V_REF 3.3
-#define FEEDBACK 120.0
-#define THERM_B 3380.0
-#define R0 10000.0
-#define T0 298.15
+#define V_REF (float) 3.3
+#define FEEDBACK (float) 120.0
+#define THERM_B (float) 3380.0
+#define R0 (float) 10000.0
+#define T0 (float) 298.15
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +50,8 @@ ADC_HandleTypeDef hadc1;
 
 FDCAN_HandleTypeDef hfdcan1;
 
+IWDG_HandleTypeDef hiwdg1;
+
 /* USER CODE BEGIN PV */
 uint32_t adc_value = 0;   // ADC value
 
@@ -60,7 +62,7 @@ float total_temperature = 0.0;
 float average_temperature = 0.0;
 float min_temperature = 100.0;
 float max_temperature = 0.0;
-float temp_counter = 0;
+float temp_counter = 0.0;
 
 temp_Lookup_Table vt_Lookup[33] = {
 		{2.44, -40},
@@ -97,6 +99,7 @@ temp_Lookup_Table vt_Lookup[33] = {
 		{1.31, 115},
 		{1.30, 120}
 };
+FDCAN_TxHeaderTypeDef tx_Header;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,12 +108,73 @@ static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_FDCAN1_Init(void);
+static void MX_IWDG1_Init(void);
 /* USER CODE BEGIN PFP */
 void sendCan(void);
+HAL_StatusTypeDef CAN_init();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+HAL_StatusTypeDef CAN_init()
+{
+	hfdcan1.Instance = FDCAN1; // Use FDCAN1 or FDCAN2
+	hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
+	hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
+	hfdcan1.Init.AutoRetransmission = ENABLE;
+	hfdcan1.Init.TransmitPause = DISABLE;
+	hfdcan1.Init.ProtocolException = DISABLE;
+
+	hfdcan1.Init.NominalPrescaler = 8;
+	hfdcan1.Init.NominalSyncJumpWidth = 1;
+	hfdcan1.Init.NominalTimeSeg1 = 12;
+	hfdcan1.Init.NominalTimeSeg2 = 2;
+
+	hfdcan1.Init.DataPrescaler = 1;
+	hfdcan1.Init.DataSyncJumpWidth = 1;
+	hfdcan1.Init.DataTimeSeg1 = 1;
+	hfdcan1.Init.DataTimeSeg2 = 1;
+
+	if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
+		return HAL_ERROR;
+
+	FDCAN_FilterTypeDef sFilterConfig;
+	sFilterConfig.IdType = FDCAN_EXTENDED_ID;
+	sFilterConfig.FilterIndex = 0;
+	sFilterConfig.FilterType = FDCAN_FILTER_MASK;
+	sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+	sFilterConfig.FilterID1 = 0x0000;
+	sFilterConfig.FilterID2 = 0x0000;
+
+	if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
+	    return HAL_ERROR;
+
+	if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
+	    return HAL_ERROR;
+
+	uint32_t CAN_ID = 0x1839F380;
+
+	tx_Header.Identifier = 0x1839F380;
+	tx_Header.IdType = FDCAN_EXTENDED_ID;
+	tx_Header.TxFrameType = FDCAN_DATA_FRAME;
+	tx_Header.DataLength = FDCAN_DLC_BYTES_8;
+	tx_Header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+	tx_Header.BitRateSwitch = FDCAN_BRS_OFF;
+	tx_Header.FDFormat = FDCAN_CLASSIC_CAN;
+	tx_Header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+	tx_Header.MessageMarker = 0;
+
+	return HAL_OK;
+
+
+//	debug_msg.StdId = 0x00;
+//	debug_msg.ExtId = 0x7;
+//	debug_msg.IDE = CAN_ID_EXT;
+//	debug_msg.RTR = CAN_RTR_DATA;
+//	debug_msg.DLC = 1;
+//	debug_msg.TransmitGlobalTime = DISABLE;
+
+}
 void SetMuxChannel(uint8_t channel) {
     // Assuming each control pin is connected to one of the 3 GPIO pins
     HAL_GPIO_WritePin(muxA_GPIO_Port, muxA_Pin, (channel & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
@@ -177,7 +241,7 @@ int8_t getClosestTemp(float voltage) {
     for (size_t i = 1; i < 33; i++) {
         if (vt_Lookup[i].voltage < voltage) {
             closestTemp = vt_Lookup[i].temperature;
-            i = 33;  // Exit loop
+            break;
         }
     }
     closestTemp = (closestTemp - 32) * 5 / 9;
@@ -327,8 +391,17 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_FDCAN1_Init();
+  MX_IWDG1_Init();
   /* USER CODE BEGIN 2 */
-  CAN_init();
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDG1RST))
+  {
+      // WDT triggered the last reset
+      __HAL_RCC_CLEAR_RESET_FLAGS();
+      // Optional: indicate via LED or UART
+  }
+
+  if (CAN_init() != HAL_OK)
+	  Error_Handler();
   //HAL_TIM_Base_Start_IT(&htim1);
 
 
@@ -350,7 +423,8 @@ int main(void)
 	  //if(ms200_flag)
 	  Calculate_Average_Temperature();
 	  sendCan();
-	  HAL_Delay(100);
+      HAL_IWDG_Refresh(&hiwdg1);               // Refresh watchdog before 3s
+	  HAL_Delay(10);
 
 
     /* USER CODE END WHILE */
@@ -382,9 +456,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 4;
@@ -542,6 +617,35 @@ static void MX_FDCAN1_Init(void)
 }
 
 /**
+  * @brief IWDG1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_IWDG1_Init(void)
+{
+
+  /* USER CODE BEGIN IWDG1_Init 0 */
+
+  /* USER CODE END IWDG1_Init 0 */
+
+  /* USER CODE BEGIN IWDG1_Init 1 */
+
+  /* USER CODE END IWDG1_Init 1 */
+  hiwdg1.Instance = IWDG1;
+  hiwdg1.Init.Prescaler = IWDG_PRESCALER_32;
+  hiwdg1.Init.Window = 4095;
+  hiwdg1.Init.Reload = 4095;
+  if (HAL_IWDG_Init(&hiwdg1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN IWDG1_Init 2 */
+
+  /* USER CODE END IWDG1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -554,6 +658,7 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
