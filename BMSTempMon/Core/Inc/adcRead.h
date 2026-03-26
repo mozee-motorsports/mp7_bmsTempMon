@@ -39,8 +39,8 @@ void readOut(uint8_t output);
  * For NTC thermistors: higher temp = lower resistance = higher ADC reading
  * (assuming a pull-up divider). Swap min/max if your circuit is inverted.
  * ----------------------------------------------------------------------- */
-#define TEMP_ADC_MIN            100     /* Below this = sensor open / too cold */
-#define TEMP_ADC_MAX            3800    /* Above this = overtemp / sensor short */
+#define TEMP_ADC_MIN            2.17     /* Below this = sensor open / too cold / set for 0 C */
+#define TEMP_ADC_MAX            1.74    /* Above this = overtemp / sensor short / set for 35 C */
 
 /* CAN message ID for temperature fault alert — update to your ID scheme */
 #define CAN_TEMP_FAULT_ID       0x100
